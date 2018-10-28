@@ -87,9 +87,39 @@ Luckely, Ansible has module [win_reg_stat](https://docs.ansible.com/ansible/late
         name: Release
     register: netversion
 ```
+If we execute this task with Ansible, we will receive the following result:
 
+Ok, so now we know .Net version installed on our machine.  The next step will  be to install min required version if it is not yet installed. We will use the following task to accomplish it:
 
+```yml
+  - name: Install .NET Framework 4.7.1
+    win_package:
+      path: C:\xfer\NDP471-KB4033342-x86-x64-AllOS-ENU.exe
+      product_id: '{0A0CADCF-78DA-33C4-A350-CD51849B9702}'
+      arguments: /q /norestart
+      state: present
+    when: netversion.value < 461310
+    register: dotnet_installation
+```
 
+As you see we used conditonal when - the task will only run when the netversion.value is lower than 461310 which is .NET Framework 4.7.1. 
 
+Note  that we used /norestart arguement. This way we do not allow automatic reboot to happen after installation of .net since we do not want the playbook to fail when the machine is rebooted unexpectedly for Ansible. But we still need to reboot and therefore we will use win_reboot module for this purpose:
+```yml
+  - name: Reboot
+    win_reboot:
+      post_reboot_delay: 180
+    when: (dotnet_installation.reboot_required | default(false))
+```
+A  couple of words about this when condition. As you see we  reboot the host depending on value of dotnet_installation variable which is registered when previous Install .NET Framework 4.7.1 is executed. What if the .Net installation task is skipped since when condition is false .i.e required version of .net is already installed? In this case dotnet_installation varialbe will not be defined and our current task will fail since we use undefined varible.  In order to avoid this failure, we set false value in when conditional. This will work the same way ISNULL works in SQL:  if dotnet_installtion.reboot_required has some value it will be used, if not the false value will be used in conditional. 
 
+So we have .Net installed. Now it is time to take care about  Visual C++ Redistributable Packages for Visual Studio 2013. It is easy enough, since we can use built in win_package module:
+```yml
+  - name: Install Visual C++ Redistributable Packages for Visual Studio 2013
+    win_package:
+      arguments: /q /norestart
+      product_id: '{929FBD26-9020-399B-9A7A-751D61F0B942}'
+      state: present
+      path: C:\xfer\vcredist_x64.exe
+```
 
