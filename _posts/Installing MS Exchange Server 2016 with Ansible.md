@@ -185,18 +185,38 @@ Handler just paused playbook execution for 2 minutes. There is also one nuance. 
 ```yml
 - meta: flush_handlers
 ```
+
 Now it is time to prepare AD
 
 ####Preparing AD
+AD can be prepared with command
+```cmd
+Setup.exe /IAcceptExchangeServerLicenseTerms /PrepareAD  /OrganizationName:"Test"
+```
+But again for the purpose of keeping our playbook idempotent, we have to have separate task to find out if we need to PrepareAD. In order to do this we will use objectVersion attribute of Services>Microsoft Exchange>'Orgnization  Name' container.
+```yml
+  - name: Get Exchange System Object Version
+    win_command:  dsquery * "CN=Test,CN=Microsoft Exchange,CN=Services,CN=Configuration,DC=test,DC=local" -attr objectVersion
+    register: Object_version_configuration
+    changed_when: false
+    failed_when: "'Directory object not found' not in ExchObject_version.stderr and ExchObject_version.stderr!=''"
+    check_mode: no
 
+  - set_fact:
+      ExchObj_config: "{{ Object_version_configuration.stdout_lines[1] | int }}"  
+  
+  - name: Prepare AD
+    win_command: D:\Setup.exe /IAcceptExchangeServerLicenseTerms /PrepareAD  /OrganizationName:"Test"
+    when: ExchObj_config<16213
+    vars:
+      ansible_become: yes
+      ansible_become_method: runas
+      ansible_become_user: TEST\Administrator
+      ansible_become_pass: P@$$w0rd
+```
 
-
-
-
-
-
-
-
+The last step in AD preparation is to prepare domain. 
+#### Preparing domain(s)
 
 
 
