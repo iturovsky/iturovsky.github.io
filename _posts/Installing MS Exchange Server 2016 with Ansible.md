@@ -305,3 +305,10 @@ Here is how our playbook finally looks like:
     pause:
       minutes: 2 # not required. A positive number of minutes to pause for.
 ```
+
+Let's start the playbook first time:
+
+And the second one:
+![Secondrun.PNG]({{site.baseurl}}/_posts/Secondrun.PNG)
+
+As we see nothing is changed when we are running it the second time, so idemptency test is passed. 
