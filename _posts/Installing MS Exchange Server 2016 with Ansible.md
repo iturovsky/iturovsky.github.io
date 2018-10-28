@@ -214,9 +214,94 @@ But again for the purpose of keeping our playbook idempotent, we have to have se
       ansible_become_user: TEST\Administrator
       ansible_become_pass: P@$$w0rd
 ```
-
+We again are using absolutely the same techniques as we did with schema expansion. 
 The last step in AD preparation is to prepare domain. 
 #### Preparing domain(s)
+Domains can be prepared with command.
+```cmd
+Setup.exe /IAcceptExchangeServerLicenseTerms /PrepareDomain[:<DomainFQDN>]
+```
+However, if you have only one domain in forest (this is by the way recommended by MSFT), you are already done since /PrepareAD prepares the domain it runs against. 
+If it is not the case, you can use the same technique and check objectVersion attribute of Exchange System Objects container. 
 
+Here is how our playbook finally looks like:
+```yml
+---
+- name: Prepare AD
+  hosts: ad
+  tasks: 
+  
+  - name: Check .Net version
+    win_reg_stat:
+        path: HKLM:\SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full\ # required. The full registry key path including the hive to search for.
+        name: Release # not required. The registry property name to get information for, the return json will not include the sub_keys and properties entries for the I(key) specified.
+    register: netversion
 
+  - name: Install .NET Framework 4.7.1
+    win_package:
+      path: C:\xfer\NDP471-KB4033342-x86-x64-AllOS-ENU.exe
+      product_id: '{0A0CADCF-78DA-33C4-A350-CD51849B9702}'
+      arguments: /q /norestart
+      state: present
+    when: netversion.value < 461310
+    register: dotnet_installation
+  
+  - name: Reboot
+    win_reboot:
+      post_reboot_delay: 180
+    when: (dotnet_installation.reboot_required | default(false))
+ 
+  - name: Install Visual C++ Redistributable Packages for Visual Studio 2013
+    win_package:
+      arguments: /q /norestart
+      product_id: '{929FBD26-9020-399B-9A7A-751D61F0B942}' # not required. The product id of the installed packaged.,This is used for checking whether the product is already installed and getting the uninstall information if C(state=absent).,You can find product ids for installed programs in the Windows registry editor either at C(HKLM:Software\Microsoft\Windows\CurrentVersion\Uninstall) or for 32 bit programs at C(HKLM:Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall).,This SHOULD be set when the package is not an MSI, or the path is a url or a network share and credential delegation is not being used. The C(creates_*) options can be used instead but is not recommended.
+      state: present # not required. Whether to install or uninstall the package.,The module uses C(product_id) and whether it exists at the registry path to see whether it needs to install or uninstall the package.
+      path: C:\xfer\vcredist_x64.exe 
 
+  - name: Get Schema Version
+    win_command:  dsquery * CN=ms-Exch-Schema-Version-Pt,CN=Schema,CN=Configuration,DC=test,DC=local -attr rangeUpper -scope base
+    register: rangeUpper
+    changed_when: false
+    failed_when: "'Directory object not found' not in rangeUpper.stderr and rangeUpper.stderr!=''"
+    check_mode: no
+
+  - set_fact:
+      Schema: "{{ rangeUpper.stdout_lines[1] | int }}"
+
+  - name: Extend Schema
+    win_command: D:\Setup.exe /IAcceptExchangeServerLicenseTerms /PrepareSchema
+    when: Schema!='15332'
+    vars:
+      ansible_become: yes
+      ansible_become_method: runas
+      ansible_become_user: TEST\Administrator
+      ansible_become_pass: P@$$w0rd
+    notify:
+    - Pausing for replication to occur
+
+  - meta: flush_handlers
+
+  - name: Get Exchange System Object Version
+    win_command:  dsquery * "CN=Test,CN=Microsoft Exchange,CN=Services,CN=Configuration,DC=test,DC=local" -attr objectVersion -scope base
+    register: Object_version_configuration
+    changed_when: false
+    failed_when: "'Directory object not found' not in Object_version_configuration.stderr and Object_version_configuration.stderr!=''"
+    check_mode: no
+
+  - set_fact:
+      ExchObj_config: "{{ Object_version_configuration.stdout_lines[1] | int }}"  
+  
+  - name: Prepare AD
+    win_command: D:\Setup.exe /IAcceptExchangeServerLicenseTerms /PrepareAD  /OrganizationName:"Test"
+    when: ExchObj_config<16213
+    vars:
+      ansible_become: yes
+      ansible_become_method: runas
+      ansible_become_user: TEST\Administrator
+      ansible_become_pass: P@$$w0rd
+
+  handlers:
+  - name: Pausing for replication to occur
+    pause:
+      minutes: 2 # not required. A positive number of minutes to pause for.
+```
