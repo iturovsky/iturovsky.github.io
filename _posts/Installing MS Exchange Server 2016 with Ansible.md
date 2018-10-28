@@ -123,3 +123,80 @@ So we have .Net installed. Now it is time to take care about  Visual C++ Redistr
       path: C:\xfer\vcredist_x64.exe
 ```
 
+### Working with Active Directory
+Now our domain controller is ready for AD changes. The first step is schema expansion
+#### Expanding Schema
+The schema can be expanded by running Setup.exe command:
+```cmd
+Setup.exe /IAcceptExchangeServerLicenseTerms /PrepareSchema
+```
+This command behavior does not suit very vell for idempotancy purposes - even if the schema is already expanded, the second run of this command will still report that schema is successfully expanded. Thus we need to find the way to determine if the schema is already installed. 
+The answer is [here](https://docs.microsoft.com/en-us/Exchange/plan-and-deploy/active-directory/ad-changes?view=exchserver-2016#extend-the-active-directory-schema):
+> After the schema has been extended by running the /PrepareSchema command, the _/PrepareAD command, or installing the first Exchange server using the Exchange Setup wizard, the schema version is set in the ms-Exch-Schema-Version-Pt attribute. To verify that the Active Directory schema was extended successfully, you can check the value stored in this attribute
+
+In addition, this [article](https://docs.microsoft.com/en-us/Exchange/plan-and-deploy/prepare-ad-and-domains?view=exchserver-2016#exchange-active-directory-versions) contains the values of this attribute. If we are installing CU10, it will be 15532. In order to check the attribute value, we will use Ansible's win_command module with good old _dsquery_.  
+
+```yml
+  - name: Get Schema Version
+    win_command:  dsquery * CN=ms-Exch-Schema-Version-Pt,CN=Schema,CN=Configuration,DC=test,DC=local -attr rangeUpper
+    register: rangeUpper
+    changed_when: false
+    failed_when: "'Directory object not found' not in Schema_version.stderr and Schema_version.stderr!=''"
+    check_mode: no
+```
+
+Some comments on this task:
+1. Since we use win_command module, Ansible will show this task as changed every time it runs. Since it is simple get task, we use _changedwhen:false_ to indicate that task does not change anything
+2. Our next task (Schema expansion) will depend on result of this task. Thus in order to get this task executed even in check mode so our next task conditional could be evaluated, we use _checkmode:no_
+3. As any other query dsquery can fail which will cause it to exit with some non-zero exit code and to record some error message in stderr. Using _failedwhen_ we tell Ansible to fail only when we receive smthing in stderr and this smth is not  'Directory object not found' message  which can be expected when schema is not yet expanded and the object CN=ms-Exch-Schema-Version-Pt,CN=Schema,CN=Configuration,DC=test,DC=local does not exist. 
+Ok, let see what this task  will return
+![schemacheck.PNG]({{site.baseurl}}/_posts/schemacheck.PNG)
+As we see the required attribute value is returned as second element of stdout_lines dictionary. 
+So we can grab it and covert to int the following way:
+```yml
+  - set_fact:
+      Schema: "{{ rangeUpper.stdout_lines[1] | int }}"
+ ```
+ Now we have attribute's  value in Schema variable. Let's check if we need to expand schema and do expansion if required.
+```yml
+  - name: Extend Schema
+    win_command: D:\Setup.exe /IAcceptExchangeServerLicenseTerms /PrepareSchema
+    when: Schema!=15332
+    vars:
+      ansible_become: yes
+      ansible_become_method: runas
+      ansible_become_user: TEST\Administrator
+      ansible_become_pass: P@$$w0rd
+    notify:
+    - Pausing for replication to occur
+```
+This task will run if Schema is not equal 15332.
+If we take a look on this task, we see that we have something in vars section of the task. 
+Since the task of Schema expansion needs to be run as Schema Admin, we use separate account for this purpose with become.
+Next,  we have _notify_. This directive will notify handler - it is special kind of task that runs at the end of playbook executinion only when a task changes state of the system and notifies handler about it. Classic example is to notify some service to restart when config is changed. 
+In our case we will trigger handler if Schema is expanded. 
+```yml
+  handlers:
+  - name: Pausing for replication to occur
+    pause:
+      minutes: 2
+```
+Handler just paused playbook execution for 2 minutes. There is also one nuance. As I said the handler will run at the end of playbook execution and we have to use special instruction flush_handlers  to run hanlder immidiately after task execution:
+```yml
+- meta: flush_handlers
+```
+Now it is time to prepare AD
+
+####Preparing AD
+
+
+
+
+
+
+
+
+
+
+
+
