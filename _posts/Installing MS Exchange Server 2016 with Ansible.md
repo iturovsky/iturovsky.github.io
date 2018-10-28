@@ -7,7 +7,7 @@ This post is the first one in series of post devoteed to Ansible + Windows. To s
 
 Ansible is shipped with modules for confiruing different core parts of Windows (files, registry, etc.), some Windows features like IIS but there is no say modules for managing MS Exchange or MS SQL (though there is one module for creation SQL databases). 
 
-This post does not pretend to be best practice on how you would configure MS Exchange or other app, moreover for the sake of simplicity I will not sometimes follow best practices (like creating roles instead of keeping all the tasks in playbook), however it will demonstrate some techniques that can be used in the real life.
+This post does not pretend to be best practice on how you would configure MS Exchange or other app, moreover for the sake of simplicity I will not sometimes follow best practices insome cases (like creating roles instead of keeping all the tasks in monolith playbook), however it will demonstrate some techniques that can be used in the real life.
 
 Thats being said, let's get started. 
 ## Environment and Ansible Inventory
@@ -15,7 +15,7 @@ In our scenario we will use 3 virtual Windows 2012 R2 machines:
 - DC-1: this is our domain controller
 - Exch2016-1: this will be the first server we will install Exchange on, currently it is just domain member
 - Exch2016-2: this will be the second machine we will install Exchange on, currently it is just domain
-  member
+  member as well
 
 We need to machines for Exchange so we can configure DAG later.
 Since this post is about Exchange, we will not cover AD forest/domain creation and process of joining servers to the domain though Ansible have appropriate modules ([win_domain](https://docs.ansible.com/ansible/latest/modules/win_domain_module.html#win-domain-module) and [win_domain_computer](https://docs.ansible.com/ansible/latest/modules/win_domain_computer_module.html#win-domain-computer-module) respecitvely).
@@ -70,15 +70,15 @@ Now we will start compilint our playbook which will make required changes on AD 
 ```
 
 ### Prerequsites installation
-Per [Exchange Server prerequisites](https://docs.microsoft.com/en-us/Exchange/plan-and-deploy/prerequisites?view=exchserver-2016#exchange-2016-prerequisites-for-preparing-active-directory) we nned to install the folowing components on the domain controller:
+Per [Exchange Server prerequisites](https://docs.microsoft.com/en-us/Exchange/plan-and-deploy/prerequisites?view=exchserver-2016#exchange-2016-prerequisites-for-preparing-active-directory) we need to install the folowing components on the domain controller:
 - .NET Framework 4.7.1
 - Visual C++ Redistributable Packages for Visual Studio 2013
 - RSAT-ADDS
 
 ####Installing .Net Framework
-The problem with .Net installation is that it is not ordinary msi package which instllation state, version and productid can be easily checked in registry (or in Add/Remove programs applet in Control Panel) and thus we can't just use win_package module to install it. First, we need to determine which version of Framework is already installed. 
+The problem with .Net installation is that it is not ordinary msi package which installation state, version and productid can be easily checked in registry (or in Add/Remove programs applet in Control Panel) and thus we can't just use _winpackage_ module to install it. First, we need to determine which version of Framework is already installed. 
 
-Per [How to: Determine which .NET Framework versions are installed](https://docs.microsoft.com/en-us/dotnet/framework/migration-guide/how-to-determine-which-versions-are-installed) we need to check the registry value _Release_ under _HKEYLOCALMACHINE\SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full_
+Per [How to: Determine which .NET Framework versions are installed](https://docs.microsoft.com/en-us/dotnet/framework/migration-guide/how-to-determine-which-versions-are-installed) we can check the registry value _Release_ under _HKEYLOCALMACHINE\SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full_
 Luckely, Ansible has module [win_reg_stat](https://docs.ansible.com/ansible/latest/modules/win_reg_stat_module.html) created exactly for this purpose so we add the following task in our playbook:
 ```yml
   - name: Check .Net version
@@ -308,7 +308,10 @@ Here is how our playbook finally looks like:
 
 Let's start the playbook first time:
 
+
+As we see .Net was installed, machine was rebooted after that, Schema was extended, playbook was paused and then AD was prepared.
+
 And the second one:
 ![Secondrun.PNG]({{site.baseurl}}/_posts/Secondrun.PNG)
 
-As we see nothing is changed when we are running it the second time, so idemptency test is passed. 
+As we see nothing is changed when we are running it the second time, so idemptency test is passed.
