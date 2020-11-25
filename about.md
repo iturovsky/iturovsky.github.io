@@ -5,4 +5,4 @@ permalink: /about/
 published: true
 ---
 
-I am automating thins on Microsoft stack with open source tools
+I am automating things on Microsoft stack with open source tools
