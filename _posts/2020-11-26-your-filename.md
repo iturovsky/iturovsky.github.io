@@ -116,8 +116,8 @@ The better option is to create module that would collect this data for us and re
 So we created very simple module, its code can be inspected in and it returns 2 values indicating if the schema is expanded and the value of mentioned attribute. 
 
 How would we use this data?
-We can have the value of the attribute specified in variables and invoke the Setup.exe only when it is required. 
-
+We can invoke Setup.exe only when schema is not expanded e.g.  in case there is no attrbite at all. 
+We can also have the value of the attribute specified in variables and invoke the Setup.exe only when CU we want to install have higher version. But we will postpone implementation of this functionality to next time.  
 As we already noted above, we need to run the this command in the security context of account with Schema Admin permissions. 
 But if we just use this account as our ansible_user, we will hit famous double-hop issue of remoting. 
 There are several ways to resolve it:
@@ -127,48 +127,32 @@ There are several ways to resolve it:
 ** kerberos delegation (technically, there will not be credentials but forwardable kerberos ticket).
 
 There are many warnings about credssp usage due to the fact of passing credentials to remote hosts but basically any of this methods will pass credentials to remote host in different forms, and if you have security concerns well you should not do it in any way. 
-Alternatively, you can talk directly to schema master to avoid double hop issue and expand schema directly on it.
+Alternatively, you can talk directly to schema master to avoid double hop issue and expand schema directly on it but this will cause you to install unneded software like .Net and C++ on the domain controller. 
 
-In this case we will use become with appropriate account. 
-The account is specified in role's default but you must definitely override it on playbook or inventory level dynamically pulling the sensitive data from secrets storage system like HashiCorp's Vault or encrypt it with Ansible's vault and provide vault key when required. 
+In this case we will use _become_ with appropriate account. 
+The account is specified in role's default but you must definitely override it on playbook or inventory level either dynamically pulling credentials from secrets storage system like HashiCorp's Vault or encrypt it with Ansible's vault and provide vault key when required. 
 
-Now it is time to prepare AD
+Now it is time to prepare AD.
 
 ####Preparing AD
 AD can be prepared with command
 ```cmd
 Setup.exe /IAcceptExchangeServerLicenseTerms /PrepareAD  /OrganizationName:"Test"
 ```
-But again for the purpose of keeping our playbook idempotent, we have to have separate task to find out if we need to PrepareAD. In order to do this we will use objectVersion attribute of Services>Microsoft Exchange>'Orgnization  Name' container.
+But again for the purpose of keeping our playbook idempotent, we have to have separate task to find out if we realy need to PrepareAD. In order to do this we will use objectVersion attribute of Services>Microsoft Exchange>'Orgnization  Name' container.
+We could again use dsquery as in task below but we will also create separate module for this. 
 ```yml
-  - name: Get Exchange System Object Version
     win_command:  dsquery * "CN=Test,CN=Microsoft Exchange,CN=Services,CN=Configuration,DC=test,DC=local" -attr objectVersion
-    register: Object_version_configuration
-    changed_when: false
-    failed_when: "'Directory object not found' not in ExchObject_version.stderr and ExchObject_version.stderr!=''"
-    check_mode: no
-
-  - set_fact:
-      ExchObj_config: "{{ Object_version_configuration.stdout_lines[1] | int }}"  
-  
-  - name: Prepare AD
-    win_command: D:\Setup.exe /IAcceptExchangeServerLicenseTerms /PrepareAD  /OrganizationName:"Test"
-    when: ExchObj_config<16213
-    vars:
-      ansible_become: yes
-      ansible_become_method: runas
-      ansible_become_user: TEST\Administrator
-      ansible_become_pass: P@$$w0rd
 ```
 We again are using absolutely the same techniques as we did with schema expansion. 
 The last step in AD preparation is to prepare domain. 
+
 #### Preparing domain(s)
 Domains can be prepared with command.
 ```cmd
 Setup.exe /IAcceptExchangeServerLicenseTerms /PrepareDomain[:<DomainFQDN>]
 ```
-However, if you have only one domain in forest (this is by the way recommended by MSFT), you are already done since /PrepareAD prepares the domain it runs against. 
-If it is not the case, you can use the same technique and check objectVersion attribute of Exchange System Objects container. 
+Alternatively, you can prepare all domains with the following command.nmn
 
-
-Enter text in [Markdown](http://daringfireball.net/projects/markdown/). Use the toolbar above, or click the **?** button for formatting help.
+However, if you have only one domain in forest, you are already done since /PrepareAD prepares the current domain too. 
+If it is not the case, you can use the same technique and check objectVersion attribute of Exchange System Objects container.
